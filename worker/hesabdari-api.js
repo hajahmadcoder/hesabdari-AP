@@ -45,7 +45,7 @@ function publicUser(u) {
     role: u.role, blocked: !!u.blocked,
     province: u.province || null, district: u.district || null,
     photo: u.profile_photo || null, createdAt: u.created_at || null,
-    pinEnabled: !!u.pin_hash,
+    pinEnabled: !!u.pin_hash, pinLength: u.pin_hash ? (u.pin_len || null) : null,
     subscription: { active: !!u.sub_active, expiresAt: u.sub_expires, daysRemaining },
     limits: {
       storeLimit: u.store_limit != null ? u.store_limit : FREE_LIMITS.stores,
@@ -57,12 +57,23 @@ function publicUser(u) {
 }
 
 /* ---------- CORS ---------- */
+// دامنه‌های معتبر برای کوکی پنل (credentials). اگر پنل را روی دامنه‌ی دیگری می‌گذارید، اینجا اضافه کنید.
+const TRUSTED_ORIGIN_SUFFIXES = ["coder-team.ir", "hesabdariap.pages.dev", "pages.dev"];
+function isTrustedOrigin(origin) {
+  try {
+    const h = new URL(origin).hostname;
+    return TRUSTED_ORIGIN_SUFFIXES.some((x) => h === x || h.endsWith("." + x));
+  } catch { return false; }
+}
 function corsHeaders(origin) {
-  return {
+  const h = {
     "Access-Control-Allow-Origin": origin || "*",
     "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Vary": "Origin",
   };
+  if (origin && origin !== "*" && isTrustedOrigin(origin)) h["Access-Control-Allow-Credentials"] = "true";
+  return h;
 }
 function json(data, status, origin) {
   return new Response(JSON.stringify(data), {
@@ -94,6 +105,15 @@ async function notifyOwnerTelegram(env, text) {
   } catch {}
 }
 
+function cleanRef(v) { const t = (v == null ? "" : String(v)).trim().slice(0, 60); return t || null; }
+// تاریخ تراکنش: فقط ISO معتبر و نه بیش از ۱ روز در آینده
+function cleanTxDate(v) {
+  if (!v || typeof v !== "string") return null;
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return null;
+  if (d.getTime() > Date.now() + 86400000) return null;
+  return d.toISOString();
+}
 function isValidPin(pin) { return typeof pin === "string" && /^[0-9]{4,6}$/.test(pin); }
 
 function b64urlToBytes(s) {
@@ -392,7 +412,7 @@ async function setPin(request, user, env, origin) {
   if (hash !== user.password_hash) return json({ error: "رمز عبور اشتباه است" }, 400, origin);
   const salt = randId(20);
   const pinHash = await hashPassword(pin, salt);
-  await env.DB.prepare("UPDATE users SET pin_hash = ?, pin_salt = ? WHERE id = ?").bind(pinHash, salt, user.id).run();
+  await env.DB.prepare("UPDATE users SET pin_hash = ?, pin_salt = ?, pin_len = ? WHERE id = ?").bind(pinHash, salt, pin.length, user.id).run();
   return json({ ok: true }, 200, origin);
 }
 
@@ -400,9 +420,10 @@ async function disablePin(request, user, env, origin) {
   if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
   let body; try { body = await request.json(); } catch { return json({ error: "درخواست نامعتبر است" }, 400, origin); }
   if (!body.password) return json({ error: "رمز عبور را وارد کنید" }, 400, origin);
+  if (body.username !== undefined && String(body.username).trim().toLowerCase() !== String(user.username).toLowerCase()) return json({ error: "نام کاربری با این حساب مطابقت ندارد" }, 400, origin);
   const hash = await hashPassword(body.password, user.salt);
   if (hash !== user.password_hash) return json({ error: "رمز عبور اشتباه است" }, 400, origin);
-  await env.DB.prepare("UPDATE users SET pin_hash = NULL, pin_salt = NULL WHERE id = ?").bind(user.id).run();
+  await env.DB.prepare("UPDATE users SET pin_hash = NULL, pin_salt = NULL, pin_len = NULL WHERE id = ?").bind(user.id).run();
   return json({ ok: true }, 200, origin);
 }
 
@@ -626,7 +647,8 @@ async function isElevated(request, env) {
   return !!(sess && sess.elevated_until && new Date(sess.elevated_until) > new Date());
 }
 
-const CURRENCY_SYMBOLS = { AFN: "؋", IRT: "تومان" };
+const CURRENCY_SYMBOLS = { AFN: "؋", IRT: "تومان", USD: "$", PKR: "₨", TRY: "₺" };
+const CURRENCY_CODES = Object.keys(CURRENCY_SYMBOLS);
 const ABOUT_TEXT = "📒 دفتر\nسامانه‌ی حسابداری و مدیریت مشتریان فروشگاه — ثبت بدهی/پرداخت، یادآوری سررسید، و مدیریت آنلاین حساب از طریق تلگرام.";
 
 function randCode(len) {
@@ -707,6 +729,8 @@ async function runD1Migration(chatId, env) {
       currency TEXT NOT NULL, amount REAL NOT NULL, photo_file_id TEXT,
       status TEXT NOT NULL DEFAULT 'awaiting_photo', created_at TEXT NOT NULL, resolved_at TEXT
     )`,
+    "ALTER TABLE transactions ADD COLUMN ref_code TEXT",
+    "ALTER TABLE users ADD COLUMN pin_len INTEGER",
     "ALTER TABLE settlement_requests ADD COLUMN kind TEXT DEFAULT 'settlement'",
     "ALTER TABLE settlement_requests ADD COLUMN amount REAL",
     "ALTER TABLE settlement_requests ADD COLUMN currency TEXT",
@@ -992,12 +1016,12 @@ async function publicCustomerBalances(customerId, env, origin) {
   if (!customer) return json({ error: "مشتری یافت نشد" }, 404, origin);
   if (customer.blocked) return json({ error: "شناسه شما مسدود شده است" }, 403, origin);
   const store = await env.DB.prepare("SELECT * FROM stores WHERE id = ?").bind(customer.store_id).first();
-  const balAFN = await computeCustomerBalance(env, customerId, "AFN");
-  const balIRT = await computeCustomerBalance(env, customerId, "IRT");
+  const balances = {};
+  for (const cur of CURRENCY_CODES) balances[cur] = await computeCustomerBalance(env, customerId, cur);
   return json({
     customerName: customer.name,
     storeName: store ? store.name : "",
-    balances: { AFN: balAFN, IRT: balIRT },
+    balances,
     cards: store ? {
       AFN: { number: store.card_afn_number || null, holder: store.card_afn_holder || null },
       IRT: { number: store.card_irt_number || null, holder: store.card_irt_holder || null },
@@ -1012,7 +1036,7 @@ async function createPaymentReceiptDraftRoute(request, env, origin) {
   if (customer.blocked) return json({ error: "شناسه شما مسدود شده است" }, 403, origin);
   const store = await env.DB.prepare("SELECT * FROM stores WHERE id = ?").bind(customer.store_id).first();
   if (!store || store.blocked) return json({ error: "این فروشگاه توسط مدیر سیستم مسدود شده است" }, 403, origin);
-  if (!["AFN", "IRT"].includes(currency) || !amount || Number(amount) <= 0) return json({ error: "اطلاعات نامعتبر است" }, 400, origin);
+  if (!CURRENCY_CODES.includes(currency) || !amount || Number(amount) <= 0) return json({ error: "اطلاعات نامعتبر است" }, 400, origin);
   const existing = await env.DB.prepare(
     "SELECT id FROM payment_receipts WHERE customer_id = ? AND status IN ('awaiting_photo','pending')"
   ).bind(customerId).first();
@@ -1028,7 +1052,7 @@ async function createCashRequestRoute(request, env, origin) {
   const customer = await env.DB.prepare("SELECT * FROM customers WHERE id = ?").bind(customerId).first();
   if (!customer) return json({ error: "مشتری یافت نشد" }, 404, origin);
   if (customer.blocked) return json({ error: "شناسه شما مسدود شده است" }, 403, origin);
-  if (!["AFN", "IRT"].includes(currency) || !amount || Number(amount) <= 0) return json({ error: "مبلغ نامعتبر است" }, 400, origin);
+  if (!CURRENCY_CODES.includes(currency) || !amount || Number(amount) <= 0) return json({ error: "مبلغ نامعتبر است" }, 400, origin);
   const store = await env.DB.prepare("SELECT * FROM stores WHERE id = ?").bind(customer.store_id).first();
   if (!store || store.blocked) return json({ error: "این فروشگاه توسط مدیر سیستم مسدود شده است" }, 403, origin);
   const existing = await env.DB.prepare(
@@ -1191,7 +1215,7 @@ async function listMyStores(user, env, origin) {
     cardAfnNumber: s.card_afn_number || null, cardAfnHolder: s.card_afn_holder || null,
     cardIrtNumber: s.card_irt_number || null, cardIrtHolder: s.card_irt_holder || null,
     telegramLinked: !!s.telegram_owner_chat_id,
-    role: roleByStore[s.id], customerCount: custCountByStore[s.id] || 0, balances: balByStore[s.id] || {},
+    baseCurrency: baseOf(s), role: roleByStore[s.id], customerCount: custCountByStore[s.id] || 0, balances: balByStore[s.id] || {},
   }));
   return json({ stores: out }, 200, origin);
 }
@@ -1300,6 +1324,139 @@ async function removeStaff(storeId, staffId, user, env, origin) {
   return json({ ok: true }, 200, origin);
 }
 
+
+// ===================== نرخ ارز، تبدیل و سود صرافی =====================
+function baseOf(store) { return (store && store.base_currency && CURRENCY_CODES.includes(store.base_currency)) ? store.base_currency : "AFN"; }
+
+async function rateAt(env, storeId, base, currency, iso) {
+  if (currency === base) return 1;
+  let r = await env.DB.prepare("SELECT rate FROM store_rates WHERE store_id = ? AND base = ? AND currency = ? AND created_at <= ? ORDER BY created_at DESC LIMIT 1")
+    .bind(storeId, base, currency, iso).first();
+  if (!r) r = await env.DB.prepare("SELECT rate FROM store_rates WHERE store_id = ? AND base = ? AND currency = ? ORDER BY created_at ASC LIMIT 1")
+    .bind(storeId, base, currency).first();
+  return r ? Number(r.rate) : null;
+}
+
+async function convFields(env, store, body, type, currency, amount, whenIso) {
+  const none = { conv_cur: null, conv_amount: null, profit_base: null, profit_cur: null };
+  const cc = body.convCurrency, ca = Number(body.convAmount);
+  if (type !== "payment" || !cc || !(ca > 0) || cc === currency || !CURRENCY_CODES.includes(cc)) return none;
+  const base = baseOf(store);
+  const r1 = await rateAt(env, store.id, base, currency, whenIso);
+  const r2 = await rateAt(env, store.id, base, cc, whenIso);
+  let profit = null;
+  if (r1 && r2) profit = Math.round((ca * r2 - amount * r1) * 100) / 100;
+  return { conv_cur: cc, conv_amount: ca, profit_base: profit, profit_cur: profit == null ? null : base };
+}
+
+function txOutObj(id, type, currency, amount, note, dueDate, category, refCode, receiptPhoto, date, cf) {
+  return { id, type, currency, amount: Number(amount), note, dueDate: (type === "debt" ? dueDate : null) || null, category: category || null, refCode,
+    receiptPhoto: receiptPhoto || null, date, convCurrency: cf.conv_cur, convAmount: cf.conv_amount, profitBase: cf.profit_base, profitCur: cf.profit_cur };
+}
+
+async function ratesPayload(env, store) {
+  const base = baseOf(store);
+  const rows = await env.DB.prepare("SELECT currency, rate, created_at FROM store_rates WHERE store_id = ? AND base = ? ORDER BY created_at ASC").bind(store.id, base).all();
+  const latest = {};
+  rows.results.forEach((r) => { latest[r.currency] = { rate: Number(r.rate), at: r.created_at }; });
+  const history = rows.results.slice(-300).map((r) => ({ currency: r.currency, rate: Number(r.rate), at: r.created_at }));
+  return { base, rates: latest, history };
+}
+
+async function getRates(storeId, user, env, origin) {
+  if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
+  const access = await getAccessibleStore(env, user.id, storeId);
+  if (!access) return json({ error: "فروشگاه یافت نشد" }, 404, origin);
+  return json(await ratesPayload(env, access.store), 200, origin);
+}
+
+async function setRates(storeId, request, user, env, origin) {
+  if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
+  const store = await getOwnedStore(env, user.id, storeId);
+  if (!store) return json({ error: "فقط مالک فروشگاه می‌تواند نرخ‌ها را تغییر دهد" }, 403, origin);
+  let body; try { body = await request.json(); } catch { return json({ error: "درخواست نامعتبر است" }, 400, origin); }
+  let cur = store;
+  if (body.base && body.base !== baseOf(store)) {
+    if (!CURRENCY_CODES.includes(body.base)) return json({ error: "ارز اصلی نامعتبر است" }, 400, origin);
+    await env.DB.prepare("UPDATE stores SET base_currency = ? WHERE id = ?").bind(body.base, storeId).run();
+    cur = { ...store, base_currency: body.base };
+  }
+  const base = baseOf(cur);
+  const now = new Date().toISOString();
+  const last = (await ratesPayload(env, cur)).rates;
+  for (const [code, v] of Object.entries(body.rates || {})) {
+    const rate = Number(v);
+    if (!CURRENCY_CODES.includes(code) || code === base) continue;
+    if (!isFinite(rate) || rate <= 0) return json({ error: "نرخ " + code + " نامعتبر است" }, 400, origin);
+    if (last[code] && Math.abs(last[code].rate - rate) < 1e-12) continue;
+    await env.DB.prepare("INSERT INTO store_rates (id, store_id, base, currency, rate, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(randId(10), storeId, base, code, rate, now).run();
+  }
+  return json({ ok: true, ...(await ratesPayload(env, cur)) }, 200, origin);
+}
+
+// ===================== سطل بازیافت =====================
+const TRASH_DAYS = 30;
+async function putTrash(env, storeId, kind, label, payload) {
+  let txt = JSON.stringify(payload);
+  if (txt.length > 1500000) { // محدودیت اندازه‌ی ردیف D1: عکس رسیدها را حذف می‌کنیم
+    const p2 = JSON.parse(txt); (p2.txs || []).forEach((t) => { t.receipt_photo = null; }); if (p2.tx) p2.tx.receipt_photo = null;
+    txt = JSON.stringify(p2);
+  }
+  await env.DB.prepare("INSERT INTO trash (id, store_id, kind, label, payload, deleted_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(randId(10), storeId, kind, label || null, txt, new Date().toISOString()).run();
+}
+async function insertRow(env, table, row) {
+  const cols = Object.keys(row);
+  await env.DB.prepare(`INSERT OR IGNORE INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`).bind(...cols.map((c) => row[c])).run();
+}
+async function listTrash(storeId, user, env, origin) {
+  if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
+  const store = await getOwnedStore(env, user.id, storeId);
+  if (!store) return json({ error: "فقط مالک فروشگاه به سطل بازیافت دسترسی دارد" }, 403, origin);
+  const cutoff = new Date(Date.now() - TRASH_DAYS * 86400000).toISOString();
+  await env.DB.prepare("DELETE FROM trash WHERE store_id = ? AND deleted_at < ?").bind(storeId, cutoff).run();
+  const rows = await env.DB.prepare("SELECT id, kind, label, payload, deleted_at FROM trash WHERE store_id = ? ORDER BY deleted_at DESC LIMIT 200").bind(storeId).all();
+  const items = rows.results.map((r) => {
+    let info = {}; try {
+      const p = JSON.parse(r.payload);
+      if (r.kind === "customer") info = { name: p.customer && p.customer.name, txCount: (p.txs || []).length };
+      else info = { type: p.tx.type, currency: p.tx.currency, amount: p.tx.amount, note: p.tx.note, customerName: p.customerName };
+    } catch {}
+    return { id: r.id, kind: r.kind, label: r.label, deletedAt: r.deleted_at, expiresAt: new Date(new Date(r.deleted_at).getTime() + TRASH_DAYS * 86400000).toISOString(), ...info };
+  });
+  return json({ items, days: TRASH_DAYS }, 200, origin);
+}
+async function restoreTrash(trashId, request, user, env, origin) {
+  if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
+  const row = await env.DB.prepare("SELECT * FROM trash WHERE id = ?").bind(trashId).first();
+  if (!row) return json({ error: "مورد یافت نشد" }, 404, origin);
+  const store = await getOwnedStore(env, user.id, row.store_id);
+  if (!store) return json({ error: "دسترسی مجاز نیست" }, 403, origin);
+  let p; try { p = JSON.parse(row.payload); } catch { return json({ error: "اطلاعات بازیابی خراب است" }, 500, origin); }
+  if (row.kind === "customer") {
+    await insertRow(env, "customers", p.customer);
+    for (const t of p.txs || []) await insertRow(env, "transactions", t);
+    for (const l of p.links || []) await insertRow(env, "store_links", l);
+  } else {
+    const c = await env.DB.prepare("SELECT id FROM customers WHERE id = ?").bind(p.tx.customer_id).first();
+    if (!c) return json({ error: "ابتدا مشتریِ این تراکنش را از سطل بازیافت برگردانید" }, 409, origin);
+    await insertRow(env, "transactions", p.tx);
+  }
+  await env.DB.prepare("DELETE FROM trash WHERE id = ?").bind(trashId).run();
+  return json({ ok: true }, 200, origin);
+}
+async function purgeTrash(trashId, request, user, env, origin) {
+  if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
+  const row = await env.DB.prepare("SELECT store_id FROM trash WHERE id = ?").bind(trashId).first();
+  if (!row) return json({ error: "مورد یافت نشد" }, 404, origin);
+  const store = await getOwnedStore(env, user.id, row.store_id);
+  if (!store) return json({ error: "دسترسی مجاز نیست" }, 403, origin);
+  if (!(await isElevated(request, env))) return json({ error: "برای حذف دائمی، هویت خود را تایید کنید", needsElevation: true }, 428, origin);
+  await env.DB.prepare("DELETE FROM trash WHERE id = ?").bind(trashId).run();
+  return json({ ok: true }, 200, origin);
+}
+
 async function listCustomers(user, env, origin, storeId) {
   if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
   if (!storeId) return json({ error: "شناسه فروشگاه الزامی است" }, 400, origin);
@@ -1315,7 +1472,7 @@ async function listCustomers(user, env, origin, storeId) {
 
   const byCustomer = {};
   for (const t of txs.results) {
-    (byCustomer[t.customer_id] ||= []).push({ id: t.id, type: t.type, currency: t.currency, amount: t.amount, note: t.note, date: t.created_at, dueDate: t.due_date, category: t.category, receiptPhoto: t.receipt_photo });
+    (byCustomer[t.customer_id] ||= []).push({ id: t.id, type: t.type, currency: t.currency, amount: t.amount, note: t.note, date: t.created_at, dueDate: t.due_date, category: t.category, refCode: t.ref_code || null, convCurrency: t.conv_cur || null, convAmount: t.conv_amount || null, profitBase: access.role === "owner" ? (t.profit_base ?? null) : null, profitCur: access.role === "owner" ? (t.profit_cur || null) : null, receiptPhoto: t.receipt_photo });
   }
   const result = customers.results.map((c) => ({
     id: c.id, name: c.name, nationalId: c.national_id, phone: c.phone, phoneCountry: c.phone_country,
@@ -1388,7 +1545,7 @@ async function customerDetail(customerId, user, env, origin) {
       phone: customer.phone, phoneCountry: customer.phone_country,
       province: customer.province, district: customer.district, village: customer.village, blocked: !!customer.blocked,
       hasNote: !!customer.private_note,
-      transactions: txs.results.map((t) => ({ id: t.id, type: t.type, currency: t.currency, amount: t.amount, note: t.note, date: t.created_at, dueDate: t.due_date, category: t.category, receiptPhoto: t.receipt_photo })),
+      transactions: txs.results.map((t) => ({ id: t.id, type: t.type, currency: t.currency, amount: t.amount, note: t.note, date: t.created_at, dueDate: t.due_date, category: t.category, refCode: t.ref_code || null, convCurrency: t.conv_cur || null, convAmount: t.conv_amount || null, profitBase: isOwner ? (t.profit_base ?? null) : null, profitCur: isOwner ? (t.profit_cur || null) : null, receiptPhoto: t.receipt_photo })),
     },
     store: { id: store.id, name: store.name },
     canEdit: isOwner,
@@ -1461,10 +1618,13 @@ async function deleteCustomer(customerId, request, user, env, origin) {
   if (!(await isElevated(request, env))) {
     return json({ error: "برای حذف مشتری، هویت خود را تایید کنید", needsElevation: true }, 428, origin);
   }
+  const txRows = await env.DB.prepare("SELECT * FROM transactions WHERE customer_id = ?").bind(customerId).all();
+  const linkRows = await env.DB.prepare("SELECT * FROM store_links WHERE customer_id = ?").bind(customerId).all();
+  await putTrash(env, customer.store_id, "customer", customer.name, { customer, txs: txRows.results, links: linkRows.results });
   await env.DB.prepare("DELETE FROM transactions WHERE customer_id = ?").bind(customerId).run();
   await env.DB.prepare("DELETE FROM store_links WHERE customer_id = ?").bind(customerId).run();
   await env.DB.prepare("DELETE FROM customers WHERE id = ?").bind(customerId).run();
-  return json({ ok: true }, 200, origin);
+  return json({ ok: true, trashed: true }, 200, origin);
 }
 
 async function addTransaction(customerId, request, user, env, origin) {
@@ -1478,8 +1638,9 @@ async function addTransaction(customerId, request, user, env, origin) {
 
   let body; try { body = await request.json(); } catch { return json({ error: "درخواست نامعتبر است" }, 400, origin); }
   const { type, currency, amount, note, dueDate, category, receiptPhoto } = body;
+  const refCode = cleanRef(body.refCode);
   if (!["debt", "payment"].includes(type)) return json({ error: "نوع تراکنش نامعتبر است" }, 400, origin);
-  if (!currency || !amount || Number(amount) <= 0) return json({ error: "مبلغ نامعتبر است" }, 400, origin);
+  if (!currency || !CURRENCY_CODES.includes(currency) || !amount || Number(amount) <= 0) return json({ error: "مبلغ یا واحد پول نامعتبر است" }, 400, origin);
   if (receiptPhoto && receiptPhoto.length > 400000) return json({ error: "حجم عکس رسید زیاد است" }, 400, origin);
 
   const owner = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(store.owner_id).first();
@@ -1491,13 +1652,14 @@ async function addTransaction(customerId, request, user, env, origin) {
   }
 
   const id = randId(10);
-  const now = new Date().toISOString();
-  await env.DB.prepare("INSERT INTO transactions (id, customer_id, type, currency, amount, note, due_date, category, receipt_photo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, customerId, type, currency, Number(amount), note || null, (type === "debt" && dueDate) ? dueDate : null, category || null, receiptPhoto || null, now).run();
+  const now = cleanTxDate(body.date) || new Date().toISOString();
+  const cf = await convFields(env, store, body, type, currency, Number(amount), now);
+  await env.DB.prepare("INSERT INTO transactions (id, customer_id, type, currency, amount, note, due_date, category, receipt_photo, created_at, ref_code, conv_cur, conv_amount, profit_base, profit_cur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, customerId, type, currency, Number(amount), note || null, (type === "debt" && dueDate) ? dueDate : null, category || null, receiptPhoto || null, now, refCode, cf.conv_cur, cf.conv_amount, cf.profit_base, cf.profit_cur).run();
 
   try { await notifyTelegramTransaction(env, customer, store, type, currency, Number(amount), note, (type === "debt" ? dueDate : null)); } catch {}
 
-  return json({ ok: true, transaction: { id, type, currency, amount: Number(amount), note, dueDate: (type === "debt" ? dueDate : null) || null, category: category || null, receiptPhoto: receiptPhoto || null, date: now } }, 200, origin);
+  return json({ ok: true, transaction: txOutObj(id, type, currency, amount, note, dueDate, category, refCode, receiptPhoto, now, cf) }, 200, origin);
 }
 
 async function updateTransaction(customerId, txId, request, user, env, origin) {
@@ -1512,26 +1674,33 @@ async function updateTransaction(customerId, txId, request, user, env, origin) {
 
   let body; try { body = await request.json(); } catch { return json({ error: "درخواست نامعتبر است" }, 400, origin); }
   const { type, currency, amount, note, dueDate, category, receiptPhoto } = body;
+  const refCode = cleanRef(body.refCode);
+  const newDate = cleanTxDate(body.date) || tx.created_at;
   if (!["debt", "payment"].includes(type)) return json({ error: "نوع تراکنش نامعتبر است" }, 400, origin);
-  if (!currency || !amount || Number(amount) <= 0) return json({ error: "مبلغ نامعتبر است" }, 400, origin);
+  if (!currency || !CURRENCY_CODES.includes(currency) || !amount || Number(amount) <= 0) return json({ error: "مبلغ یا واحد پول نامعتبر است" }, 400, origin);
   if (receiptPhoto && receiptPhoto.length > 400000) return json({ error: "حجم عکس رسید زیاد است" }, 400, origin);
 
-  await env.DB.prepare("UPDATE transactions SET type = ?, currency = ?, amount = ?, note = ?, due_date = ?, category = ?, receipt_photo = ? WHERE id = ?")
-    .bind(type, currency, Number(amount), note || null, (type === "debt" && dueDate) ? dueDate : null, category || null, receiptPhoto || null, txId).run();
+  const cf = await convFields(env, store, body, type, currency, Number(amount), newDate);
+  await env.DB.prepare("UPDATE transactions SET type = ?, currency = ?, amount = ?, note = ?, due_date = ?, category = ?, receipt_photo = ?, ref_code = ?, created_at = ?, conv_cur = ?, conv_amount = ?, profit_base = ?, profit_cur = ? WHERE id = ?")
+    .bind(type, currency, Number(amount), note || null, (type === "debt" && dueDate) ? dueDate : null, category || null, receiptPhoto || null, refCode, newDate, cf.conv_cur, cf.conv_amount, cf.profit_base, cf.profit_cur, txId).run();
 
-  return json({ ok: true, transaction: { id: txId, type, currency, amount: Number(amount), note, dueDate: (type === "debt" ? dueDate : null) || null, category: category || null, receiptPhoto: receiptPhoto || null, date: tx.created_at } }, 200, origin);
+  return json({ ok: true, transaction: txOutObj(txId, type, currency, amount, note, dueDate, category, refCode, receiptPhoto, newDate, cf) }, 200, origin);
 }
 
-async function deleteTransaction(customerId, txId, user, env, origin) {
+async function deleteTransaction(customerId, txId, request, user, env, origin) {
   if (!user) return json({ error: "ابتدا وارد شوید" }, 401, origin);
   const customer = await env.DB.prepare("SELECT * FROM customers WHERE id = ?").bind(customerId).first();
   if (!customer) return json({ error: "مشتری یافت نشد" }, 404, origin);
   const store = await env.DB.prepare("SELECT * FROM stores WHERE id = ?").bind(customer.store_id).first();
   if (!store || store.owner_id !== user.id) return json({ error: "فقط مالک فروشگاه می‌تواند تراکنش را حذف کند" }, 403, origin);
-  const tx = await env.DB.prepare("SELECT id FROM transactions WHERE id = ? AND customer_id = ?").bind(txId, customerId).first();
+  const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND customer_id = ?").bind(txId, customerId).first();
   if (!tx) return json({ error: "تراکنش یافت نشد" }, 404, origin);
+  if (!(await isElevated(request, env))) {
+    return json({ error: "برای حذف تراکنش، هویت خود را تایید کنید", needsElevation: true }, 428, origin);
+  }
+  await putTrash(env, store.id, "transaction", tx.note || null, { tx, customerName: customer.name });
   await env.DB.prepare("DELETE FROM transactions WHERE id = ?").bind(txId).run();
-  return json({ ok: true }, 200, origin);
+  return json({ ok: true, trashed: true }, 200, origin);
 }
 
 async function listLinks(user, env, origin) {
@@ -1822,7 +1991,7 @@ async function exportStoreBackup(storeId, user, env, origin) {
     store: { id: store.id, name: store.name, storeUsername: store.store_username, address: store.address, phone: store.phone, hours: store.hours },
     customers: customers.results.map((c) => ({
       id: c.id, name: c.name, nationalId: c.national_id, phone: c.phone, province: c.province, district: c.district, village: c.village,
-      transactions: (byCustomer[c.id] || []).map((t) => ({ type: t.type, currency: t.currency, amount: t.amount, note: t.note, date: t.created_at, category: t.category, dueDate: t.due_date })),
+      transactions: (byCustomer[c.id] || []).map((t) => ({ type: t.type, currency: t.currency, amount: t.amount, note: t.note, date: t.created_at, category: t.category, refCode: t.ref_code || null, convCurrency: t.conv_cur || null, convAmount: t.conv_amount || null, profitBase: t.profit_base ?? null, profitCur: t.profit_cur || null, dueDate: t.due_date })),
     })),
   }, 200, origin);
 }
@@ -2422,16 +2591,47 @@ async function adminListBroadcasts(user, panelAuthed, env, origin) {
   }, 200, origin);
 }
 
-async function adminResetPassword(targetId, user, panelAuthed, env, origin) {
+function randLetters(len) {
+  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
+  const arr = new Uint8Array(len); crypto.getRandomValues(arr);
+  return Array.from(arr, (b) => chars[b % chars.length]).join("");
+}
+function randDigits(len) {
+  const arr = new Uint8Array(len); crypto.getRandomValues(arr);
+  return Array.from(arr, (b) => String(b % 10)).join("");
+}
+// رمز خودکار: حروف + عدد (مخلوط)؛ پین خودکار: فقط عدد
+function autoPassword() { return randLetters(5) + randDigits(3); }
+async function adminResetPassword(targetId, request, user, panelAuthed, env, origin) {
   if (!adminAuthorized(user, panelAuthed)) return json({ error: "دسترسی مجاز نیست" }, 403, origin);
   const target = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(targetId).first();
   if (!target) return json({ error: "کاربر یافت نشد" }, 404, origin);
-  const newPassword = randAlnumId(8);
-  const salt = randId(20);
-  const hash = await hashPassword(newPassword, salt);
-  await env.DB.prepare("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?").bind(hash, salt, targetId).run();
-  await logAdminAction(env, user, "reset_password", "user", targetId, `${target.first_name} ${target.last_name} (@${target.username})`);
-  return json({ ok: true, newPassword }, 200, origin);
+  let body = {}; try { body = await request.json(); } catch {}
+  const wantPin = body.pin != null && body.pin !== "" || body.autoPin === true || body.clearPin === true;
+  const wantPass = (typeof body.password === "string" && body.password !== "") || body.autoPassword === true || !wantPin;
+  const out = { ok: true };
+  if (wantPass) {
+    let pw = typeof body.password === "string" ? body.password : "";
+    if (pw) { if (pw.length < 4 || pw.length > 64) return json({ error: "رمز دلخواه باید ۴ تا ۶۴ کاراکتر باشد" }, 400, origin); }
+    else pw = autoPassword();
+    const salt = randId(20);
+    const hash = await hashPassword(pw, salt);
+    await env.DB.prepare("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?").bind(hash, salt, targetId).run();
+    out.newPassword = pw;
+  }
+  if (body.clearPin === true) {
+    await env.DB.prepare("UPDATE users SET pin_hash = NULL, pin_salt = NULL, pin_len = NULL WHERE id = ?").bind(targetId).run();
+    out.pinCleared = true;
+  } else if (body.pin != null && body.pin !== "" || body.autoPin === true) {
+    let pin = body.pin != null && body.pin !== "" ? String(body.pin) : randDigits(4);
+    if (!isValidPin(pin)) return json({ error: "پین فقط عدد و بین ۴ تا ۶ رقم باشد" }, 400, origin);
+    const psalt = randId(20);
+    const phash = await hashPassword(pin, psalt);
+    await env.DB.prepare("UPDATE users SET pin_hash = ?, pin_salt = ?, pin_len = ? WHERE id = ?").bind(phash, psalt, pin.length, targetId).run();
+    out.newPin = pin;
+  }
+  await logAdminAction(env, user, "reset_credentials", "user", targetId, `${target.first_name} ${target.last_name} (@${target.username})` + (out.newPassword ? " [رمز]" : "") + (out.newPin ? " [پین]" : "") + (out.pinCleared ? " [حذف پین]" : ""));
+  return json(out, 200, origin);
 }
 
 /* =========================================================
@@ -2478,6 +2678,27 @@ async function panelChangePassword(request, panelAuthed, env, origin) {
 /* =========================================================
    ورودی اصلی Worker یکپارچه — auth + data + personal + admin/panel
    ========================================================= */
+/* ---------- مایگریشن خودکار (ستون‌های جدید؛ بی‌خطر و فقط یک‌بار در هر اجرا) ---------- */
+let __schemaDone = false;
+async function ensureSchema(env) {
+  if (__schemaDone) return;
+  const stmts = [
+    "ALTER TABLE transactions ADD COLUMN ref_code TEXT",
+    "ALTER TABLE users ADD COLUMN pin_len INTEGER",
+    "ALTER TABLE transactions ADD COLUMN conv_cur TEXT",
+    "ALTER TABLE transactions ADD COLUMN conv_amount REAL",
+    "ALTER TABLE transactions ADD COLUMN profit_base REAL",
+    "ALTER TABLE transactions ADD COLUMN profit_cur TEXT",
+    "ALTER TABLE stores ADD COLUMN base_currency TEXT",
+    `CREATE TABLE IF NOT EXISTS store_rates (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, base TEXT NOT NULL, currency TEXT NOT NULL, rate REAL NOT NULL, created_at TEXT NOT NULL)`,
+    "CREATE INDEX IF NOT EXISTS idx_store_rates ON store_rates(store_id, base, currency, created_at)",
+    `CREATE TABLE IF NOT EXISTS trash (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, kind TEXT NOT NULL, label TEXT, payload TEXT NOT NULL, deleted_at TEXT NOT NULL)`,
+    "CREATE INDEX IF NOT EXISTS idx_trash_store ON trash(store_id, deleted_at)",
+  ];
+  for (const q of stmts) { try { await env.DB.prepare(q).run(); } catch (e) { /* ستون از قبل هست */ } }
+  __schemaDone = true;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -2488,6 +2709,7 @@ export default {
     if (method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
 
     try {
+      await ensureSchema(env);
       const user = await getSessionUser(request, env);
       const panelAuthed = await getPanelAuthed(request, env);
       const mm = (re) => path.match(re);
@@ -2509,6 +2731,7 @@ export default {
 
       if (path === "/api/me/pin" && method === "POST") return await setPin(request, user, env, origin);
       if (path === "/api/me/pin" && method === "DELETE") return await disablePin(request, user, env, origin);
+      if (path === "/api/me/pin/disable" && method === "POST") return await disablePin(request, user, env, origin);
       if (path === "/api/me/pin/verify" && method === "POST") return await verifyPin(request, user, env, origin);
 
       if (path === "/api/me/webauthn/register-options" && method === "POST") return await webauthnRegisterOptions(user, env, origin);
@@ -2533,6 +2756,11 @@ export default {
       { const g = mm(/^\/api\/stores\/([^/]+)\/telegram-owner-link$/); if (g && method === "GET") return await getOrCreateStoreTelegramLink(g[1], user, env, origin); }
       { const g = mm(/^\/api\/stores\/([^/]+)\/telegram-owner-link$/); if (g && method === "DELETE") return await disconnectStoreTelegramOwner(g[1], user, env, origin); }
       { const g = mm(/^\/api\/stores\/([^/]+)\/rename$/); if (g && method === "POST") return await renameStore(g[1], request, user, env, origin); }
+      { const g = mm(/^\/api\/stores\/([^/]+)\/rates$/); if (g && method === "GET") return await getRates(g[1], user, env, origin); }
+      { const g = mm(/^\/api\/stores\/([^/]+)\/rates$/); if (g && method === "POST") return await setRates(g[1], request, user, env, origin); }
+      { const g = mm(/^\/api\/stores\/([^/]+)\/trash$/); if (g && method === "GET") return await listTrash(g[1], user, env, origin); }
+      { const g = mm(/^\/api\/trash\/([^/]+)\/restore$/); if (g && method === "POST") return await restoreTrash(g[1], request, user, env, origin); }
+      { const g = mm(/^\/api\/trash\/([^/]+)$/); if (g && method === "DELETE") return await purgeTrash(g[1], request, user, env, origin); }
       { const g = mm(/^\/api\/stores\/([^/]+)\/backup$/); if (g && method === "GET") return await exportStoreBackup(g[1], user, env, origin); }
       { const g = mm(/^\/api\/stores\/([^/]+)\/settlement-requests$/); if (g && method === "GET") return await listSettlementRequests(g[1], user, env, origin); }
       { const g = mm(/^\/api\/settlement-requests\/([^/]+)\/resolve$/); if (g && method === "POST") return await resolveSettlementRequest(g[1], user, env, origin); }
@@ -2566,7 +2794,7 @@ export default {
       { const g = mm(/^\/api\/customers\/([^/]+)\/self-profile$/); if (g && method === "GET") return await customerSelfProfile(g[1], user, env, origin); }
       { const g = mm(/^\/api\/customers\/([^/]+)\/block$/); if (g && method === "POST") return await toggleCustomerBlock(g[1], user, env, origin); }
       { const g = mm(/^\/api\/customers\/([^/]+)\/transactions\/([^/]+)$/); if (g && method === "POST") return await updateTransaction(g[1], g[2], request, user, env, origin); }
-      { const g = mm(/^\/api\/customers\/([^/]+)\/transactions\/([^/]+)$/); if (g && method === "DELETE") return await deleteTransaction(g[1], g[2], user, env, origin); }
+      { const g = mm(/^\/api\/customers\/([^/]+)\/transactions\/([^/]+)$/); if (g && method === "DELETE") return await deleteTransaction(g[1], g[2], request, user, env, origin); }
       { const g = mm(/^\/api\/customers\/([^/]+)\/transactions$/); if (g && method === "POST") return await addTransaction(g[1], request, user, env, origin); }
       { const g = mm(/^\/api\/customers\/([^/]+)\/note$/); if (g && method === "GET") return await revealCustomerNote(g[1], request, user, env, origin); }
       { const g = mm(/^\/api\/customers\/([^/]+)$/); if (g && method === "GET") return await customerDetail(g[1], user, env, origin); }
@@ -2608,7 +2836,7 @@ export default {
       { const g = mm(/^\/api\/admin\/users\/([^/]+)\/subscription$/); if (g && method === "POST") return await adminSetSubscription(g[1], request, user, panelAuthed, env, origin); }
       { const g = mm(/^\/api\/admin\/users\/([^/]+)\/subscription-logs$/); if (g && method === "GET") return await adminSubscriptionLogs(g[1], user, panelAuthed, env, origin); }
       { const g = mm(/^\/api\/admin\/stores\/([^/]+)\/block$/); if (g && method === "POST") return await adminToggleStoreBlock(g[1], user, panelAuthed, env, origin); }
-      { const g = mm(/^\/api\/admin\/users\/([^/]+)\/reset-password$/); if (g && method === "POST") return await adminResetPassword(g[1], user, panelAuthed, env, origin); }
+      { const g = mm(/^\/api\/admin\/users\/([^/]+)\/reset-password$/); if (g && method === "POST") return await adminResetPassword(g[1], request, user, panelAuthed, env, origin); }
       if (path === "/api/admin/broadcast" && method === "POST") return await adminCreateBroadcast(request, user, panelAuthed, env, origin);
       if (path === "/api/admin/broadcasts" && method === "GET") return await adminListBroadcasts(user, panelAuthed, env, origin);
       if (path === "/api/admin/action-logs" && method === "GET") return await adminListActionLogs(user, panelAuthed, env, origin);
@@ -2632,3 +2860,4 @@ export default {
     ctx.waitUntil(sendDueDateReminders(env));
   },
 };
+
