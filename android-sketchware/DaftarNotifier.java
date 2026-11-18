@@ -33,8 +33,8 @@ import java.util.Locale;
 public class DaftarNotifier {
 
     static final String PREFS = "daftar_notify";
-    static final String DATA = "https://hesabdari-data.haj-ahmad-coder.workers.dev/api";
-    static final String AUTH = "https://hesabdari-auth.haj-ahmad-coder.workers.dev/api";
+    static final String DATA = "https://hesabdari-api.haj-ahmad-coder.workers.dev/api";
+    static final String AUTH = "https://hesabdari-api.haj-ahmad-coder.workers.dev/api";
     static final int JOB_ID = 1701;
     static final int SEEN_MAX = 500;
 

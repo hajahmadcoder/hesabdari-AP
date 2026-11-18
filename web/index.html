@@ -13,9 +13,7 @@
 <meta name="theme-color" content="#0c514f">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%92%3C/text%3E%3C/svg%3E">
 
-<link rel="preconnect" href="https://hesabdari-auth.haj-ahmad-coder.workers.dev" crossorigin>
-<link rel="preconnect" href="https://hesabdari-data.haj-ahmad-coder.workers.dev" crossorigin>
-<link rel="preconnect" href="https://hesabdari-personal.haj-ahmad-coder.workers.dev" crossorigin>
+<link rel="preconnect" href="https://hesabdari-api.haj-ahmad-coder.workers.dev" crossorigin>
 <link rel="preload" href="fonts/Vazirmatn-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <style>
 /* فونت روی همان هاست (بدون وابستگی به گوگل — در ایران کند/فیلتر است) */
@@ -1397,11 +1395,10 @@ body::before{
 
 </div>
 <script>
-const AUTH_BASE = "https://hesabdari-auth.haj-ahmad-coder.workers.dev";
+// همه‌ی درخواست‌ها به ورکر یکپارچه می‌روند (hesabdari-api). ورکرهای قدیمی فقط برای پشتیبان روشن مانده‌اند.
+const API_BASE = "https://hesabdari-api.haj-ahmad-coder.workers.dev";
 // ⚠️ این رو با یوزرنیم واقعی ربات تلگرام (بدون @) پر کن
 const TELEGRAM_BOT_USERNAME = "HesabdariAPbot";
-const DATA_BASE = "https://hesabdari-data.haj-ahmad-coder.workers.dev";
-const PERSONAL_BASE = "https://hesabdari-personal.haj-ahmad-coder.workers.dev";
 const ADMIN_PANEL_URL = "https://ownerhesabdariap.pages.dev/";
 
 const PROVINCES = {
@@ -1441,7 +1438,16 @@ const PROVINCES = {
   "قندوز": ["قندوز", "امام صاحب", "خان‌آباد", "علی‌آباد", "چهاردره", "دشت‌ارچی", "قلعه‌ذال"],
 };
 const PROVINCE_NAMES = Object.keys(PROVINCES);
-const CURRENCIES = [{ code: "AFN", label: "افغانی", symbol: "؋" }, { code: "IRT", label: "تومان", symbol: "تومان" }];
+const CURRENCIES = [
+  { code: "AFN", label: "افغانی", symbol: "؋" },
+  { code: "IRT", label: "تومان", symbol: "تومان" },
+  { code: "USD", label: "دلار", symbol: "$" },
+  { code: "PKR", label: "کلدار", symbol: "₨" },
+  { code: "TRY", label: "لیر", symbol: "₺" },
+];
+function curInfo(code){ return CURRENCIES.find(c=>c.code===code) || { code, label: code||"", symbol: code||"" }; }
+// افغانی و تومان همیشه نمایش داده می‌شوند؛ بقیه‌ی ارزها فقط وقتی تراکنشی با آن‌ها ثبت شده باشد
+function shownCurrencies(txs){ return CURRENCIES.filter(c=>c.code==="AFN"||c.code==="IRT"||(txs||[]).some(t=>t.currency===c.code)); }
 const TX_CATEGORIES = [{ code:"goods", label:"خرید کالا" }, { code:"service", label:"خدمات" }, { code:"cash", label:"قرض نقدی" }, { code:"other", label:"سایر" }];
 function txCategoryLabel(code){ return (TX_CATEGORIES.find(c=>c.code===code)||{}).label || ""; }
 
@@ -1449,6 +1455,7 @@ function esc(s){return (s??"").toString().replace(/[&<>"']/g,c=>({"&":"&amp;","<
 function toFa(n){return (Number(n)||0).toLocaleString("fa-IR");}
 function fmtDate(iso){try{return new Date(iso).toLocaleDateString("fa-IR",{year:"numeric",month:"2-digit",day:"2-digit"});}catch{return "";}}
 function fmtDateTime(iso){try{return new Date(iso).toLocaleString("fa-IR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});}catch{return "";}}
+function extraBalances(txs){ return shownCurrencies(txs).filter(c=>c.code!=="AFN"&&c.code!=="IRT").map(c=>{ const b=balanceOf(txs,c.code); return b ? toFa(Math.abs(b))+" "+c.symbol : ""; }).filter(Boolean); }
 function balanceOf(txs,cur){return txs.filter(t=>t.currency===cur).reduce((a,t)=>a+(t.type==="debt"?t.amount:-t.amount),0);}
 
 /* ================= مبلغ به حروف ================= */
@@ -1480,7 +1487,7 @@ function numToFaWords(num){
 function amountInWords(amount,currencyCode){
   const n=Number(amount);
   if(!n || n<=0 || isNaN(n)) return "";
-  const unit = currencyCode==="IRT" ? "تومان" : "افغانی";
+  const unit = curInfo(currencyCode).label;
   return numToFaWords(n)+" "+unit;
 }
 function updateAmountWords(amountId,currencyId,outId){
@@ -1637,17 +1644,8 @@ function nativeLockActive(){
   try{ if(JSON.parse(nativeApp().lockTimingInfo()).snoozeRemainMs>0) return false; }catch{}
   return true;
 }
-function pickBase(path){
-  if(path.startsWith("/auth/")) return AUTH_BASE;
-  if(path==="/me" || path.startsWith("/me/")) return AUTH_BASE;
-  if(path==="/plans") return AUTH_BASE;
-  if(path.startsWith("/plan-requests")) return AUTH_BASE;
-  if(path.startsWith("/subscription-grants")) return AUTH_BASE;
-  if(path.startsWith("/personal/")) return PERSONAL_BASE;
-  return DATA_BASE;
-}
-async function api(path, method="GET", body){
-  const base = pickBase(path);
+async function api(path, method="GET", body, _retried){
+  const base = API_BASE;
   const token = getToken();
   const headers = {};
   if(body) headers["Content-Type"]="application/json";
@@ -1664,6 +1662,12 @@ async function api(path, method="GET", body){
     throw e;
   }
   let data={}; try{data=await res.json();}catch{}
+  // سرور تایید هویت (پین/اثر انگشت) می‌خواهد: یک بار قفل را نشان بده و درخواست را تکرار کن
+  if(res.status===428 && data.needsElevation && !_retried){
+    if(S.security) S.security.elevatedUntil = null;
+    if(await requireElevated()) return api(path, method, body, true);
+    throw new Error("تایید هویت انجام نشد");
+  }
   if(!res.ok) throw new Error(data.error||"خطایی رخ داد");
   if(data.token) setToken(data.token);
   return data;
@@ -2028,7 +2032,7 @@ function renderHomePage(){
   const txs = S.customers.flatMap(c=>c.transactions);
   const afn = balanceOf(txs,"AFN"), irt = balanceOf(txs,"IRT");
   document.getElementById("homeBalance").textContent = toFa(Math.abs(afn))+" افغانی";
-  document.getElementById("homeBalanceAlt").textContent = toFa(Math.abs(irt))+" تومان";
+  document.getElementById("homeBalanceAlt").textContent = [toFa(Math.abs(irt))+" تومان", ...extraBalances(txs)].join(" · ");
   const debtors = S.customers.filter(c=>CURRENCIES.some(cur=>balanceOf(c.transactions,cur.code)>0)).length;
   document.getElementById("homeDebt").textContent = toFa(debtors);
   document.getElementById("statCustomers").textContent = toFa(S.customers.length);
@@ -2104,7 +2108,7 @@ function renderMyStorePage(){
       <div class="store-balance">
         <small>موجودی فروشگاه</small>
         <strong>${toFa(Math.abs(balanceOf(txs,"AFN")))} افغانی</strong>
-        <strong style="font-size:13px;opacity:.85;display:block;margin-top:2px">${toFa(Math.abs(balanceOf(txs,"IRT")))} تومان</strong>
+        <strong style="font-size:13px;opacity:.85;display:block;margin-top:2px">${[toFa(Math.abs(balanceOf(txs,"IRT")))+" تومان", ...extraBalances(txs)].join(" · ")}</strong>
       </div>
     </div>
 
@@ -2149,6 +2153,16 @@ function renderMyStorePage(){
       <div class="action-card" onclick="openTelegramOwnerLink('${store.id}')">
         <div class="action-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></div>
         <div class="action-info"><b>مدیریت فروشگاه از تلگرام</b><p id="tgOwnerStatus">اتصال ربات برای دریافت اعلان و فیش</p></div>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
+      <div class="action-card" onclick="openRatesModal('${store.id}')">
+        <div class="action-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/></svg></div>
+        <div class="action-info"><b>نرخ ارز و سود صرافی</b><p>ارز اصلی: ${esc(curInfo(store.baseCurrency||"AFN").label)} — نرخ‌ها برای محاسبه‌ی سود تبدیل</p></div>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
+      <div class="action-card" onclick="openTrashModal('${store.id}')">
+        <div class="action-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg></div>
+        <div class="action-info"><b>سطل بازیافت</b><p>بازگرداندن مشتری یا تراکنش حذف‌شده (تا ۳۰ روز)</p></div>
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
       </div>
       <div class="action-card" onclick="openSettlementRequests('${store.id}')">
@@ -2352,6 +2366,113 @@ async function submitDisconnectTelegramOwner(storeId){
 }
 
 /* ============ SETTLEMENT REQUESTS ============ */
+/* ============ نرخ ارز فروشگاه ============ */
+function openRatesModal(storeId){
+  openModal(`
+    <div class="modal-handle"></div>
+    <div class="page-title">نرخ ارز و سود صرافی</div>
+    <div id="ratesBody"><div class="disabled-note" style="text-align:center;padding:14px;font-size:12px">در حال بارگذاری...</div></div>
+  `);
+  loadRates(storeId);
+}
+async function loadRates(storeId, baseOverride){
+  const el = document.getElementById("ratesBody"); if(!el) return;
+  try{
+    const r = await api(`/stores/${storeId}/rates`);
+    const base = baseOverride || r.base;
+    const baseInfo = curInfo(base);
+    const sameBase = base === r.base;
+    el.innerHTML = `
+      <p style="font-size:12px;color:var(--muted);line-height:1.9;margin:6px 0 12px">وقتی بدهی را به یک ارز ثبت کرده‌اید و مشتری با ارز دیگری پرداخت می‌کند، سود یا زیان تبدیل با این نرخ‌ها و به «ارز اصلی» حساب می‌شود. نرخ‌های قبلی در تاریخچه می‌مانند و تراکنش‌های گذشته با نرخ همان روز حساب می‌شوند.</p>
+      <div class="form-label">ارز اصلی فروشگاه</div>
+      <select class="form-input" id="rtBase" onchange="loadRates('${storeId}', this.value)">${CURRENCIES.map(c=>`<option value="${c.code}" ${c.code===base?"selected":""}>${c.label}</option>`).join("")}</select>
+      ${CURRENCIES.filter(c=>c.code!==base).map(c=>`
+        <div class="form-label">۱ ${c.label} = چند ${baseInfo.label}؟</div>
+        <input class="form-input" type="number" step="any" id="rt_${c.code}" value="${sameBase && r.rates[c.code] ? r.rates[c.code].rate : ""}" placeholder="مثلا ${c.code==="USD"?"70":c.code==="IRT"?"0.0012":"1"}">
+        ${sameBase && r.rates[c.code] ? `<div class="disabled-note" style="margin-top:-8px;margin-bottom:10px;font-size:11px">آخرین تغییر: ${fmtDateTime(r.rates[c.code].at)}</div>` : ""}
+      `).join("")}
+      <div id="rtErr"></div>
+      <button class="primary-btn" onclick="saveRates('${storeId}')">ذخیره نرخ‌ها</button>
+      ${sameBase && r.history.length ? `<div class="section-title">تاریخچه نرخ‌ها</div>` + r.history.slice(-20).reverse().map(h=>`
+        <div class="notif-item" style="margin-bottom:6px"><div style="flex:1"><div class="notif-title">۱ ${esc(curInfo(h.currency).label)} = ${toFa(h.rate)} ${esc(baseInfo.label)}</div><div class="notif-time">${fmtDateTime(h.at)}</div></div></div>`).join("") : ""}
+    `;
+  }catch(err){ el.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+}
+async function saveRates(storeId){
+  const base = document.getElementById("rtBase").value;
+  const rates = {};
+  for(const c of CURRENCIES){
+    if(c.code===base) continue;
+    const v = (document.getElementById("rt_"+c.code)?.value||"").trim();
+    if(v==="") continue;
+    const n = Number(v);
+    if(!isFinite(n) || n<=0){ document.getElementById("rtErr").innerHTML = `<div class="err">نرخ ${esc(c.label)} نامعتبر است</div>`; return; }
+    rates[c.code] = n;
+  }
+  try{
+    await api(`/stores/${storeId}/rates`,"POST",{ base, rates });
+    await loadStores();
+    toast("نرخ‌ها ذخیره شد","success");
+    loadRates(storeId);
+    renderMyStorePage();
+  }catch(err){ document.getElementById("rtErr").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+}
+
+/* ============ سطل بازیافت ============ */
+function openTrashModal(storeId){
+  openModal(`
+    <div class="modal-handle"></div>
+    <div class="page-title">سطل بازیافت</div>
+    <div class="page-subtitle" style="margin-bottom:10px">موارد حذف‌شده تا ۳۰ روز اینجا می‌مانند و بعد خودکار پاک می‌شوند.</div>
+    <div id="trashList"><div class="disabled-note" style="text-align:center;padding:14px;font-size:12px">در حال بارگذاری...</div></div>
+  `);
+  loadTrash(storeId);
+}
+async function loadTrash(storeId){
+  const el = document.getElementById("trashList"); if(!el) return;
+  try{
+    const r = await api(`/stores/${storeId}/trash`);
+    el.innerHTML = r.items.length ? r.items.map(it=>{
+      const title = it.kind==="customer"
+        ? `مشتری: ${esc(it.name||it.label||"")}`
+        : `تراکنش ${it.type==="debt"?"بدهی":"واریزی"} — ${toFa(it.amount)} ${esc(curInfo(it.currency).symbol)}`;
+      const desc = it.kind==="customer"
+        ? `${toFa(it.txCount||0)} تراکنش`
+        : `${esc(it.customerName||"")}${it.note?" — "+esc(it.note):""}`;
+      return `
+      <div class="notif-item" style="margin-bottom:8px">
+        <div class="notif-icon tx-out"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6l-1 14H6L5 6"/></svg></div>
+        <div style="flex:1">
+          <div class="notif-title">${title}</div>
+          <div class="notif-desc">${desc}</div>
+          <div class="notif-time">حذف: ${fmtDateTime(it.deletedAt)} · پاک‌شدن: ${fmtDate(it.expiresAt)}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button class="copychip2" style="background:#dcf1ea;color:var(--success)" onclick="restoreTrashItem('${it.id}','${storeId}')">بازگردانی</button>
+          <button class="copychip2" style="background:#fbf1ec;color:#c45f4d" onclick="purgeTrashItem('${it.id}','${storeId}')">حذف دائمی</button>
+        </div>
+      </div>`;
+    }).join("") : `<div class="disabled-note" style="text-align:center;padding:14px;font-size:12px">سطل بازیافت خالی است</div>`;
+  }catch(err){ el.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+}
+async function restoreTrashItem(id, storeId){
+  try{
+    await api(`/trash/${id}/restore`,"POST");
+    await loadCustomers();
+    renderHomePage(); refreshCustomersPageIfActive();
+    toast("بازگردانده شد","success");
+    loadTrash(storeId);
+  }catch(err){ toast(err.message,"error"); }
+}
+async function purgeTrashItem(id, storeId){
+  if(!confirm("این مورد برای همیشه پاک می‌شود و دیگر قابل بازگشت نیست. ادامه می‌دهید؟")) return;
+  try{
+    await api(`/trash/${id}`,"DELETE");
+    toast("برای همیشه پاک شد","success");
+    loadTrash(storeId);
+  }catch(err){ toast(err.message,"error"); }
+}
+
 function openSettlementRequests(storeId){
   openModal(`
     <div class="modal-handle"></div>
@@ -2829,7 +2950,7 @@ function renderPersonalPage(){
     <div class="page-title">حسابداری شخصی</div>
     <div class="page-subtitle" style="margin-bottom:16px">تراز شخصی شما با افراد دیگر</div>
     <div class="offline-badge" style="display:none;align-items:center;gap:6px;background:#fdecc8;color:#96690c;border-radius:12px;padding:8px 12px;font-size:11.5px;font-weight:700;margin-bottom:12px"></div>
-    <div class="balance-grid">${CURRENCIES.map(cur=>{const b=personalBalanceOf(txs,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"از شما طلبکارند":"شما بدهکارید"}</div></div>`;}).join("")}</div>
+    <div class="balance-grid">${shownCurrencies(txs).map(cur=>{const b=personalBalanceOf(txs,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"از شما طلبکارند":"شما بدهکارید"}</div></div>`;}).join("")}</div>
 
     <div class="cf-tabs" id="persStatusTabs" style="margin-top:16px">
       <button type="button" class="cf-tab ${S.personalFilterStatus==="all"?"active":""}" data-v="all">همه</button>
@@ -2987,7 +3108,7 @@ function renderPersonalDetailPage(){
       </div>
     </div>
     ${c.phone ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">تماس: ${esc(c.phone)}</div>` : ""}
-    <div class="balance-grid">${CURRENCIES.map(cur=>{const b=personalBalanceOf(c.transactions,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"طلبکار":"بدهکار"}</div></div>`;}).join("")}</div>
+    <div class="balance-grid">${shownCurrencies(c.transactions).map(cur=>{const b=personalBalanceOf(c.transactions,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"طلبکار":"بدهکار"}</div></div>`;}).join("")}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
       <button class="primary-btn" onclick="openPersonalTxModal('${c.id}','given')">واریزی (دادم)</button>
       <button class="secondary-btn" style="color:var(--success)" onclick="openPersonalTxModal('${c.id}','received')">دریافت (گرفتم)</button>
@@ -3365,7 +3486,7 @@ function confirmDeleteCustomer(customerId,name){
   openModal(`
     <div class="modal-handle"></div>
     <div class="page-title">حذف مشتری</div>
-    <p style="font-size:13px;color:var(--muted);line-height:1.9;margin:10px 0 20px">مشتری «${esc(name)}» و تمام تراکنش‌های او برای همیشه حذف می‌شود. این عمل قابل بازگشت نیست.</p>
+    <p style="font-size:13px;color:var(--muted);line-height:1.9;margin:10px 0 20px">مشتری «${esc(name)}» و تمام تراکنش‌های او حذف می‌شود و تا ۳۰ روز در «سطل بازیافت» فروشگاه می‌ماند.</p>
     <div style="display:flex;gap:8px">
       <button class="secondary-btn" style="flex:1" onclick="closeModal()">انصراف</button>
       <button class="primary-btn" style="flex:1;background:#c45f4d" onclick="doDeleteCustomer('${customerId}')">حذف کن</button>
@@ -3419,7 +3540,7 @@ function renderCustomerDetailPage(){
     </div>
     <button class="secondary-btn" style="width:100%;margin-bottom:14px" onclick="openInviteQr('${c.id}','${esc(c.name).replace(/'/g,"\\'")}')">نمایش QR Code برای چاپ</button>
     <button class="secondary-btn" style="width:100%;margin-bottom:14px" onclick="openTelegramModal('${c.id}','${esc(c.name).replace(/'/g,"\\'")}')">🔔 اعلان تلگرام برای این مشتری</button>
-    <div class="balance-grid">${CURRENCIES.map(cur=>{const b=balanceOf(c.transactions,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"بدهکار":"بستانکار"}</div></div>`;}).join("")}</div>
+    <div class="balance-grid">${shownCurrencies(c.transactions).map(cur=>{const b=balanceOf(c.transactions,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"بدهکار":"بستانکار"}</div></div>`;}).join("")}</div>
     ${!store||store.blocked ? "" : `<button class="primary-btn" style="margin-top:14px" onclick="openAddTxModal('${c.id}')">+ ثبت تراکنش جدید</button>`}
     ${(!store||store.role!=="staff") ? `<button class="secondary-btn" style="width:100%;margin-top:8px" onclick="openRecurringModal('${c.id}')">تراکنش‌های تکرارشونده ماهانه</button>` : ""}
     ${(!store||store.role!=="staff") ? `
@@ -3467,6 +3588,7 @@ function renderTxRows(c){
           <div class="notif-time" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
             <span>${fmtDate(t.date)}</span>
             ${t.category?`<span class="blocked-badge" style="background:var(--surface2);color:var(--muted)">${esc(txCategoryLabel(t.category))}</span>`:""}
+            ${txExtraBadges(t)}
             ${overdue?`<span class="blocked-badge">سررسید گذشته</span>`:t.dueDate?`<span class="blocked-badge" style="background:#eef6f2;color:var(--success)">سررسید: ${fmtDate(t.dueDate)}</span>`:""}
           </div>
         </div>
@@ -3562,6 +3684,51 @@ async function doDeleteRecurring(recId,customerId){
   }catch(err){ toast(err.message,"error"); }
 }
 
+/* ---- فیلدهای اضافه‌ی تراکنش: کد مرجع، تاریخ، دریافت به ارز دیگر (فقط واریزی) ---- */
+function txExtraFields(p, t){
+  const d = t.date ? localYmd(t.date) : "";
+  return `
+    <div class="form-label">کد مرجع / شماره فاکتور (اختیاری)</div>
+    <input class="form-input" id="${p}Ref" maxlength="60" value="${esc(t.refCode||"")}" placeholder="مثلا ۱۲۳۴">
+    <div class="form-label">تاریخ تراکنش (اختیاری — پیش‌فرض: الان)</div>
+    ${dateField(p+"TxDate", d, {placeholder:"امروز"})}
+    <div id="${p}ConvWrap" style="display:none">
+      <div class="form-label">دریافت به ارز دیگر (اختیاری)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <select class="form-input" id="${p}ConvCur"><option value="">همان ارز</option>${CURRENCIES.map(c=>`<option value="${c.code}" ${t.convCurrency===c.code?"selected":""}>${c.label}</option>`).join("")}</select>
+        <input class="form-input" type="number" id="${p}ConvAmount" placeholder="مبلغ دریافتی" value="${t.convAmount||""}">
+      </div>
+      <div class="disabled-note" style="margin-top:-6px;margin-bottom:10px">مثلا بدهی افغانی را دلار گرفته‌اید. سود/زیان صرافی با «نرخ ارز» فروشگاه حساب می‌شود.</div>
+    </div>`;
+}
+function txConvToggle(p, type){
+  const w = document.getElementById(p+"ConvWrap"); if(w) w.style.display = type==="payment" ? "block" : "none";
+}
+function txExtraBadges(t){
+  let h="";
+  if(t.refCode) h+=`<span class="blocked-badge" style="background:var(--surface2);color:var(--muted)">کد: ${esc(t.refCode)}</span>`;
+  if(t.convCurrency && t.convAmount) h+=`<span class="blocked-badge" style="background:#eef6f2;color:var(--success)">دریافت: ${toFa(t.convAmount)} ${esc(curInfo(t.convCurrency).symbol)}</span>`;
+  if(t.profitBase!=null && t.profitCur) h+=`<span class="blocked-badge" style="background:${t.profitBase>=0?"#eef6f2":"#fbf1ec"};color:${t.profitBase>=0?"var(--success)":"#c45f4d"}">${t.profitBase>=0?"سود":"زیان"} صرافی: ${toFa(Math.abs(t.profitBase))} ${esc(curInfo(t.profitCur).symbol)}</span>`;
+  return h;
+}
+function localYmd(iso){ const x=new Date(iso); if(isNaN(x)) return ""; return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); }
+function txExtraValues(p, orig){
+  const out = { refCode: (document.getElementById(p+"Ref")?.value||"").trim() };
+  const d = document.getElementById(p+"TxDate")?.value || "";
+  if(orig && orig.date && d===localYmd(orig.date)){ out.date = orig.date; }
+  else if(d){
+    // تاریخ انتخابی + ساعت فعلی (تا ترتیب تراکنش‌های همان روز حفظ شود)
+    const now = new Date(); const dt = new Date(d+"T00:00:00");
+    if(!isNaN(dt)){ dt.setHours(now.getHours(), now.getMinutes(), now.getSeconds()); out.date = dt.toISOString(); }
+  }
+  const type = p==="t" ? (window.__txType ? window.__txType() : "debt") : (window.__editTxType ? window.__editTxType() : "debt");
+  const cc = document.getElementById(p+"ConvCur")?.value || "";
+  const ca = Number(document.getElementById(p+"ConvAmount")?.value || 0);
+  const cur = document.getElementById(p+"Currency")?.value;
+  if(type==="payment" && cc && cc!==cur && ca>0){ out.convCurrency = cc; out.convAmount = ca; }
+  return out;
+}
+
 function openAddTxModal(customerId){
   openModal(`
     <div class="modal-handle"></div>
@@ -3579,6 +3746,7 @@ function openAddTxModal(customerId){
     <input class="form-input" id="tNote" placeholder="مثلا خرید مواد غذایی">
     <div class="form-label">دسته‌بندی (اختیاری)</div>
     <select class="form-input" id="tCategory"><option value="">بدون دسته‌بندی</option>${TX_CATEGORIES.map(c=>`<option value="${c.code}">${c.label}</option>`).join("")}</select>
+    ${txExtraFields("t", {})}
     <div id="tDueWrap"></div>
     <div class="form-label">عکس رسید (اختیاری)</div>
     <div id="tReceiptPreview"></div>
@@ -3591,6 +3759,7 @@ function openAddTxModal(customerId){
   const debtBtn=document.getElementById("tDebt"), payBtn=document.getElementById("tPay");
   function renderDueWrap(){
     document.getElementById("tDueWrap").innerHTML = type==="debt" ? `<div class="form-label">سررسید پرداخت (اختیاری)</div>${dateField("tDueDate","",{placeholder:"سررسید"})}` : "";
+    txConvToggle("t", type);
   }
   function setType(t){ type=t;
     debtBtn.style.cssText = t==="debt" ? "background:var(--accent-light);color:var(--accent)" : "";
@@ -3636,6 +3805,7 @@ async function submitAddTx(customerId){
       category: document.getElementById("tCategory").value,
       dueDate: document.getElementById("tDueDate")?.value || "",
       receiptPhoto: window.__txReceipt ? window.__txReceipt() : "",
+      ...txExtraValues("t"),
     });
     await loadCustomers();
     closeModal(); renderHomePage(); refreshCustomersPageIfActive();
@@ -3663,6 +3833,7 @@ function openEditTxModal(customerId,txId){
     <input class="form-input" id="etNote" value="${esc(t.note||"")}">
     <div class="form-label">دسته‌بندی (اختیاری)</div>
     <select class="form-input" id="etCategory"><option value="">بدون دسته‌بندی</option>${TX_CATEGORIES.map(c=>`<option value="${c.code}" ${t.category===c.code?"selected":""}>${c.label}</option>`).join("")}</select>
+    ${txExtraFields("et", t)}
     <div id="etDueWrap"></div>
     <div class="form-label">عکس رسید (اختیاری)</div>
     <div id="etReceiptPreview">${t.receiptPhoto?`<img src="${t.receiptPhoto}" style="width:100%;border-radius:12px;margin-bottom:8px">`:""}</div>
@@ -3675,6 +3846,7 @@ function openEditTxModal(customerId,txId){
   const debtBtn=document.getElementById("etDebt"), payBtn=document.getElementById("etPay");
   function renderDueWrap(){
     document.getElementById("etDueWrap").innerHTML = type==="debt" ? `<div class="form-label">سررسید پرداخت (اختیاری)</div>${dateField("etDueDate", t.dueDate?t.dueDate.slice(0,10):"", {placeholder:"سررسید"})}` : "";
+    txConvToggle("et", type);
   }
   function setType(tp){ type=tp;
     debtBtn.style.cssText = tp==="debt" ? "background:var(--accent-light);color:var(--accent)" : "";
@@ -3705,6 +3877,7 @@ async function submitEditTx(customerId,txId){
       category: document.getElementById("etCategory").value,
       dueDate: document.getElementById("etDueDate")?.value || "",
       receiptPhoto: window.__editTxReceipt ? window.__editTxReceipt() : "",
+      ...txExtraValues("et", ((S.customers.find(x=>x.id===customerId)||{}).transactions||[]).find(x=>x.id===txId)),
     });
     await loadCustomers();
     closeModal(); renderCustomerDetailPage(); renderHomePage(); refreshCustomersPageIfActive();
@@ -3715,13 +3888,14 @@ function confirmDeleteTx(customerId,txId){
   openModal(`
     <div class="modal-handle"></div>
     <div class="page-title">حذف تراکنش</div>
-    <p style="font-size:13px;color:var(--muted);line-height:1.9;margin:10px 0 20px">این تراکنش برای همیشه حذف می‌شود. این عمل قابل بازگشت نیست.</p>
+    <p style="font-size:13px;color:var(--muted);line-height:1.9;margin:10px 0 20px">این تراکنش حذف می‌شود و تا ۳۰ روز در «سطل بازیافت» فروشگاه می‌ماند.</p>
     <div style="display:flex;gap:8px">
       <button class="secondary-btn" style="flex:1" onclick="closeModal()">انصراف</button>
       <button class="primary-btn" style="flex:1;background:#c45f4d" onclick="doDeleteTx('${customerId}','${txId}')">حذف کن</button>
     </div>`);
 }
 async function doDeleteTx(customerId,txId){
+  if(!(await requireElevated())) return;
   try{
     await api(`/customers/${customerId}/transactions/${txId}`,"DELETE");
     await loadCustomers();
@@ -3950,7 +4124,11 @@ function renderReportPage(){
     <div class="balance-grid">
       <div class="balance-box"><div class="label">افغانی</div><div class="value ${afn===0?"":afn>0?"pos":"neg"}">${toFa(Math.abs(afn))}</div></div>
       <div class="balance-box"><div class="label">تومان</div><div class="value ${irt===0?"":irt>0?"pos":"neg"}">${toFa(Math.abs(irt))}</div></div>
+      ${shownCurrencies(txs).filter(c=>c.code!=="AFN"&&c.code!=="IRT").map(c=>{const b=balanceOf(txs,c.code);return `<div class="balance-box"><div class="label">${c.label}</div><div class="value ${b===0?"":b>0?"pos":"neg"}">${toFa(Math.abs(b))}</div></div>`;}).join("")}
     </div>
+    ${(()=>{ const pr={}; txs.forEach(t=>{ if(t.profitBase!=null && t.profitCur) pr[t.profitCur]=(pr[t.profitCur]||0)+Number(t.profitBase); });
+      const keys=Object.keys(pr); if(!keys.length) return "";
+      return `<div class="section-title">سود / زیان صرافی (تبدیل ارز)</div><div class="balance-grid">`+keys.map(k=>`<div class="balance-box"><div class="label">${esc(curInfo(k).label)}</div><div class="value ${pr[k]>=0?"neg":"pos"}">${pr[k]<0?"-":""}${toFa(Math.abs(Math.round(pr[k]*100)/100))}</div><div class="status">${pr[k]>=0?"سود":"زیان"}</div></div>`).join("")+`</div>`; })()}
     <div class="stats" style="margin-top:10px">
       <div class="stat-card"><div class="stat-label">مشتریان</div><div class="stat-value">${toFa(S.customers.length)}</div></div>
       <div class="stat-card"><div class="stat-label">بدهکار</div><div class="stat-value">${toFa(debtors.length)}</div></div>
@@ -4622,7 +4800,7 @@ function openLinkDetail(linkId){
       </button>
     </div>
     <div class="page-subtitle" style="margin-bottom:14px">حساب شما نزد این فروشگاه</div>
-    <div class="balance-grid">${CURRENCIES.map(cur=>{const b=balanceOf(l.customer.transactions,cur.code); const pos=b>0; return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))}</div><div class="status">${b===0?"تسویه":pos?"بدهکار":"بستانکار"}</div></div>`;}).join("")}</div>
+    <div class="balance-grid">${shownCurrencies(l.customer.transactions).map(cur=>{const b=balanceOf(l.customer.transactions,cur.code); const pos=b>0; return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))}</div><div class="status">${b===0?"تسویه":pos?"بدهکار":"بستانکار"}</div></div>`;}).join("")}</div>
     <div class="section-title">تاریخچه تراکنش‌ها</div>
     ${l.customer.transactions.length ? [...l.customer.transactions].reverse().map(t=>`
       <div class="notif-item">
@@ -4755,7 +4933,7 @@ async function renderPublicView(customerId){
           ${store.hours?`<div>🕒 ${esc(store.hours)}</div>`:""}
         </div>` : ""}
       </div>
-      <div class="balance-grid">${CURRENCIES.map(cur=>{const b=balanceOf(c.transactions,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"بدهکار":"بستانکار"}</div></div>`;}).join("")}</div>
+      <div class="balance-grid">${shownCurrencies(c.transactions).map(cur=>{const b=balanceOf(c.transactions,cur.code);const pos=b>0;return `<div class="balance-box"><div class="label">${cur.label}</div><div class="value ${b===0?"":pos?"pos":"neg"}">${toFa(Math.abs(b))} <span style="font-size:11px;font-weight:400">${cur.symbol}</span></div><div class="status">${b===0?"تسویه":pos?"بدهکار":"بستانکار"}</div></div>`;}).join("")}</div>
       <button class="secondary-btn" style="width:100%;margin-top:12px" id="settleBtn" onclick="submitSettlementRequest('${customerId}')">می‌خواهم تسویه کنم — اطلاع بده</button>
       <div class="section-title" style="margin-top:20px">تاریخچه تراکنش‌ها</div>
       ${c.transactions.length ? [...c.transactions].reverse().map(t=>`
@@ -5156,6 +5334,10 @@ function showLockScreen(purpose){
 }
 async function requireElevated(){
   if(isElevatedClient()) return true;
+  if(!(S.security && (S.security.pinEnabled || S.security.webauthnCount>0))){
+    toast("برای این کار ابتدا از «پروفایل ← امنیت» یک پین تنظیم کنید","error");
+    return false;
+  }
   return await showLockScreen("elevate");
 }
 
