@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>حسابداری AP — سامانه حرفه‌ای حسابداری فروشگاهی</title>
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Vazirmatn', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#1e40af',
+                        secondary: '#10b981',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Vazirmatn', sans-serif; }
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e40af 0%, #10b981 100%);
+        }
+        .faq-item {
+            transition: all 0.3s ease;
+        }
+        .faq-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        .faq-item.active .faq-content {
+            max-height: 500px;
+        }
+        .faq-item.active .faq-icon {
+            transform: rotate(180deg);
+        }
+        .step-card {
+            transition: transform 0.3s ease;
+        }
+        .step-card:hover {
+            transform: translateY(-5px);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <!-- Header -->
+    <header class="gradient-bg text-white pb-32 pt-8 px-4">
+        <div class="max-w-4xl mx-auto text-center">
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect fill='white' width='400' height='400' rx='80'/%3E%3Cpath fill='%231e40af' d='M120 100 L200 280 L280 100 L240 100 L200 200 L160 100 Z'/%3E%3Cpath fill='%2310b981' d='M220 100 L220 140 L260 140 C282 140 300 158 300 180 L300 200 C300 222 282 240 260 240 L220 240 L220 280 L260 280 C304 280 340 244 340 200 L340 180 C340 136 304 100 260 100 Z'/%3E%3Crect x='160' y='200' width='20' height='40' fill='%231e40af' rx='3'/%3E%3Crect x='190' y='180' width='20' height='60' fill='%2310b981' rx='3'/%3E%3Cpath fill='none' stroke='%2310b981' stroke-width='8' d='M140 260 Q200 280 280 220'/%3E%3Ctext x='200' y='330' font-family='Arial' font-size='28' font-weight='bold' fill='%231e40af' text-anchor='middle'%3Eحسابداری AP%3C/text%3E%3C/svg%3E" 
+                 alt="حسابداری AP" class="w-32 h-32 mx-auto mb-4 rounded-3xl shadow-2xl">
+            <h1 class="text-3xl font-bold mb-3">حسابداری AP</h1>
+            <p class="text-blue-100 text-lg">سامانه حرفه‌ای حسابداری فروشگاهی</p>
+            <p class="text-blue-100 mt-2">مدیریت مشتریان، بدهی و بستانکاری به دو ارز افغانی و تومان</p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-4xl mx-auto px-4 -mt-20 pb-20">
+        
+        <!-- Download Card -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">دانلود اپلیکیشن</h2>
+                    <p class="text-gray-600 text-sm">نسخه اندروید — بدون نیاز به گوگل پلی</p>
+                </div>
+                <div class="bg-blue-100 p-3 rounded-xl">
+                    <i class="fab fa-android text-3xl text-blue-600"></i>
+                </div>
+            </div>
+            <a href="https://github.com/hajahmadcoder/hesabdari-AP/releases/download/1v.0/AP.apk" 
+               class="block w-full bg-gradient-to-r from-blue-600 to-green-500 text-white text-center py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02] mb-3">
+                <i class="fas fa-download ml-2"></i>
+                دانلود مستقیم (APK)
+            </a>
+            <a href="https://hesabdariap.pages.dev/" target="_blank"
+               class="block w-full bg-gray-100 text-gray-800 text-center py-3 rounded-xl font-bold hover:bg-gray-200 transition-all">
+                <i class="fas fa-globe ml-2"></i>
+                استفاده از نسخه وب
+            </a>
+            <p class="text-xs text-gray-500 mt-3 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                <i class="fas fa-info-circle text-yellow-600 ml-1"></i>
+                پس از دانلود، اجازه «نصب از منابع ناشناس» را در تنظیمات گوشی فعال کنید.
+            </p>
+        </div>
+
+        <!-- Features -->
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-white rounded-xl p-4 shadow-lg">
+                <div class="bg-blue-100 w-12 h-12 rounded-lg flex items-center justify-center mb-3">
+                    <i class="fas fa-coins text-2xl text-blue-600"></i>
+                </div>
+                <h3 class="font-bold text-gray-800">دو ارزی</h3>
+                <p class="text-sm text-gray-600">افغانی و تومان</p>
+            </div>
+            <div class="bg-white rounded-xl p-4 shadow-lg">
+                <div class="bg-green-100 w-12 h-12 rounded-lg flex items-center justify-center mb-3">
+                    <i class="fas fa-store text-2xl text-green-600"></i>
+                </div>
+                <h3 class="font-bold text-gray-800">چند فروشگاهی</h3>
+                <p class="text-sm text-gray-600">مدیریت نامحدود</p>
+            </div>
+            <div class="bg-white rounded-xl p-4 shadow-lg">
+                <div class="bg-purple-100 w-12 h-12 rounded-lg flex items-center justify-center mb-3">
+                    <i class="fas fa-shield-alt text-2xl text-purple-600"></i>
+                </div>
+                <h3 class="font-bold text-gray-800">امن و رمزنگاری‌شده</h3>
+                <p class="text-sm text-gray-600">حفاظت کامل</p>
+            </div>
+            <div class="bg-white rounded-xl p-4 shadow-lg">
+                <div class="bg-orange-100 w-12 h-12 rounded-lg flex items-center justify-center mb-3">
+                    <i class="fas fa-file-pdf text-2xl text-orange-600"></i>
+                </div>
+                <h3 class="font-bold text-gray-800">گزارش PDF</h3>
+                <p class="text-sm text-gray-600">صورت حساب حرفه‌ای</p>
+            </div>
+        </div>
+
+        <!-- How It Works -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                <i class="fas fa-cogs text-blue-600 ml-2"></i>
+                راهنمای استفاده
+            </h2>
+            
+            <div class="space-y-4">
+                <div class="step-card bg-gradient-to-r from-blue-50 to-white p-4 rounded-xl border-r-4 border-blue-500">
+                    <div class="flex items-start">
+                        <div class="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold ml-3 shrink-0">1</div>
+                        <div>
+                            <h3 class="font-bold text-gray-800 mb-2">ساخت فروشگاه</h3>
+                            <p class="text-gray-600 text-sm leading-relaxed">
+                                بعد از ورود، اولین فروشگاه خود را بسازید. می‌توانید چندین فروشگاه داشته باشید و بین آن‌ها جابه‌جا شوید.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-card bg-gradient-to-r from-green-50 to-white p-4 rounded-xl border-r-4 border-green-500">
+                    <div class="flex items-start">
+                        <div class="bg-green-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold ml-3 shrink-0">2</div>
+                        <div>
+                            <h3 class="font-bold text-gray-800 mb-2">ثبت مشتریان</h3>
+                            <p class="text-gray-600 text-sm leading-relaxed">
+                                اطلاعات مشتریان را وارد کنید. سیستم به هر مشتری یک <strong>شناسه ۱۲ رقمی منحصر‌به‌فرد</strong> می‌دهد.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-card bg-gradient-to-r from-purple-50 to-white p-4 rounded-xl border-r-4 border-purple-500">
+                    <div class="flex items-start">
+                        <div class="bg-purple-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold ml-3 shrink-0">3</div>
+                        <div>
+                            <h3 class="font-bold text-gray-800 mb-2">اشتراک‌گذاری کد مشتری</h3>
+                            <p class="text-gray-600 text-sm leading-relaxed">
+                                شناسه ۱۲ رقمی یا <strong>لینک دعوت</strong> را به مشتری بدهید. مشتری با یک کلیک به حساب خود نزد شما متصل می‌شود.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-card bg-gradient-to-r from-orange-50 to-white p-4 rounded-xl border-r-4 border-orange-500">
+                    <div class="flex items-start">
+                        <div class="bg-orange-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold ml-3 shrink-0">4</div>
+                        <div>
+                            <h3 class="font-bold text-gray-800 mb-2">مشاهده آنلاین توسط مشتری</h3>
+                            <p class="text-gray-600 text-sm leading-relaxed">
+                                مشتری می‌تواند <strong>بدون تماس تلفنی</strong> صورت حساب، بدهی و تمام تراکنش‌های خود را ببیند. 
+                                همه چیز به‌صورت خودکار و لحظه‌ای به‌روز می‌شود.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-card bg-gradient-to-r from-red-50 to-white p-4 rounded-xl border-r-4 border-red-500">
+                    <div class="flex items-start">
+                        <div class="bg-red-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold ml-3 shrink-0">5</div>
+                        <div>
+                            <h3 class="font-bold text-gray-800 mb-2">ثبت تراکنش‌ها</h3>
+                            <p class="text-gray-600 text-sm leading-relaxed">
+                                هر تراکنش (فروش، پرداخت، بدهی) را ثبت کنید. سیستم به‌طور خودکار تراز حساب را محاسبه می‌کند.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FAQ Section -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                <i class="fas fa-question-circle text-blue-600 ml-2"></i>
+                سوالات متداول
+            </h2>
+            
+            <div class="space-y-3">
+                <!-- FAQ Item 1 -->
+                <div class="faq-item border border-gray-200 rounded-xl overflow-hidden">
+                    <button class="faq-trigger w-full px-4 py-4 text-right flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors" onclick="toggleFaq(this)">
+                        <span class="font-bold text-gray-800">چطور از سیستم استفاده کنم؟</span>
+                        <i class="fas fa-chevron-down faq-icon text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-content bg-white">
+                        <div class="p-4 text-gray-600 text-sm leading-relaxed">
+                            <p>کافی است اپلیکیشن را دانلود و نصب کنید. بعد از ثبت‌نام، اولین فروشگاه خود را بسازید و مشتریان را ثبت کنید. به هر مشتری یک شناسه ۱۲ رقمی داده می‌شود که می‌توانید آن را به مشتری بدهید تا خودش بتواند صورت حسابش را ببیند.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ Item 2 -->
+                <div class="faq-item border border-gray-200 rounded-xl overflow-hidden">
+                    <button class="faq-trigger w-full px-4 py-4 text-right flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors" onclick="toggleFaq(this)">
+                        <span class="font-bold text-gray-800">چطور فروشگاه بسازم و مشتری ثبت کنم؟</span>
+                        <i class="fas fa-chevron-down faq-icon text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-content bg-white">
+                        <div class="p-4 text-gray-600 text-sm leading-relaxed">
+                            <p>در منوی اصلی، گزینه «فروشگاه جدید» را بزنید و نام فروشگاه را وارد کنید. برای ثبت مشتری، روی «مشتری جدید» کلیک کنید و اطلاعات (نام، شماره تماس) را وارد کنید. سیستم خودکار شناسه ۱۲ رقمی تولید می‌کند.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ Item 3 -->
+                <div class="faq-item border border-gray-200 rounded-xl overflow-hidden">
+                    <button class="faq-trigger w-full px-4 py-4 text-right flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors" onclick="toggleFaq(this)">
+                        <span class="font-bold text-gray-800">مشتری چطور صورت حسابش را ببیند؟</span>
+                        <i class="fas fa-chevron-down faq-icon text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-content bg-white">
+                        <div class="p-4 text-gray-600 text-sm leading-relaxed">
+                            <p>شناسه ۱۲ رقمی مشتری یا لینک دعوت را به او بدهید. مشتری با ورود به سایت یا اپلیکیشن و وارد کردن این کد، می‌تواند <strong>بدون نیاز به تماس با شما</strong> تمام تراکنش‌ها، بدهی و صورت حسابش را به‌صورت لحظه‌ای ببیند.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ Item 4 -->
+                <div class="faq-item border border-gray-200 rounded-xl overflow-hidden">
+                    <button class="faq-trigger w-full px-4 py-4 text-right flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors" onclick="toggleFaq(this)">
+                        <span class="font-bold text-gray-800">چطور اشتراک تهیه کنم؟</span>
+                        <i class="fas fa-chevron-down faq-icon text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-content bg-white">
+                        <div class="p-4 text-gray-600 text-sm leading-relaxed">
+                            <p>برای تهیه اشتراک، از طریق واتساپ یا تلگرام با پشتیبانی تماس بگیرید و <strong>شناسه ۱۲ رقمی حساب</strong> خود را ارسال کنید. پشتیبانی اشتراک شما را فعال می‌کند.</p>
+                            <div class="mt-3 flex gap-2">
+                                <a href="https://wa.me/989920969774" target="_blank" class="flex-1 bg-green-500 text-white py-2 rounded-lg text-center text-sm font-bold hover:bg-green-600 transition-colors">
+                                    <i class="fab fa-whatsapp ml-1"></i> واتساپ
+                                </a>
+                                <a href="https://t.me/leader_arvah" target="_blank" class="flex-1 bg-blue-500 text-white py-2 rounded-lg text-center text-sm font-bold hover:bg-blue-600 transition-colors">
+                                    <i class="fab fa-telegram ml-1"></i> تلگرام
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ Item 5 -->
+                <div class="faq-item border border-gray-200 rounded-xl overflow-hidden">
+                    <button class="faq-trigger w-full px-4 py-4 text-right flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors" onclick="toggleFaq(this)">
+                        <span class="font-bold text-gray-800">چرا اشتراک لازم است؟</span>
+                        <i class="fas fa-chevron-down faq-icon text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-content bg-white">
+                        <div class="p-4 text-gray-600 text-sm leading-relaxed">
+                            <p>اشتراک برای ارائه خدمات حرفه‌ای‌تر و پایدار طراحی شده است. با اشتراک:</p>
+                            <ul class="list-disc list-inside mt-2 space-y-1 text-gray-600">
+                                <li>دسترسی به امکانات پیشرفته‌تر</li>
+                                <li>سقف بالاتر برای ثبت تراکنش و مشتری</li>
+                                <li>پشتیبانی اولویت‌دار</li>
+                                <li>گزارش‌گیری حرفه‌ای‌تر</li>
+                                <li>کارکرد بهتر و سریع‌تر سیستم</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Support Card -->
+        <div class="bg-gradient-to-r from-blue-600 to-green-500 rounded-2xl shadow-xl p-6 text-white mb-6">
+            <h2 class="text-xl font-bold mb-4 flex items-center">
+                <i class="fas fa-headset ml-2"></i>
+                پشتیبانی
+            </h2>
+            <p class="text-blue-100 mb-4 text-sm">برای هر سوال یا مشکل، با پشتیبانی در ارتباط باشید:</p>
+            <div class="grid grid-cols-2 gap-3">
+                <a href="https://t.me/leader_arvah" target="_blank" class="bg-white/20 backdrop-blur-sm py-3 rounded-xl text-center font-bold hover:bg-white/30 transition-all">
+                    <i class="fab fa-telegram text-2xl mb-1"></i>
+                    <p class="text-sm">تلگرام</p>
+                </a>
+                <a href="https://wa.me/989920969774" target="_blank" class="bg-white/20 backdrop-blur-sm py-3 rounded-xl text-center font-bold hover:bg-white/30 transition-all">
+                    <i class="fab fa-whatsapp text-2xl mb-1"></i>
+                    <p class="text-sm">واتساپ</p>
+                </a>
+                <a href="mailto:haj.ahmad.coder@gmail.com" class="bg-white/20 backdrop-blur-sm py-3 rounded-xl text-center font-bold hover:bg-white/30 transition-all">
+                    <i class="fas fa-envelope text-2xl mb-1"></i>
+                    <p class="text-sm">ایمیل</p>
+                </a>
+                <a href="https://coder-b0l.pages.dev/" target="_blank" class="bg-white/20 backdrop-blur-sm py-3 rounded-xl text-center font-bold hover:bg-white/30 transition-all">
+                    <i class="fas fa-globe text-2xl mb-1"></i>
+                    <p class="text-sm">سایت تیم کدر</p>
+                </a>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-gray-300 py-8 px-4">
+        <div class="max-w-4xl mx-auto text-center">
+            <p class="mb-2">طراحی و توسعه توسط <a href="https://coder-b0l.pages.dev/" target="_blank" class="text-blue-400 hover:underline">تیم کدر</a></p>
+            <p class="text-sm text-gray-500">مدیریت: وکیل احمد حیدری</p>
+            <p class="text-xs text-gray-600 mt-4">© ۲۰۲۶ حسابداری AP — تمامی حقوق محفوظ است</p>
+        </div>
+    </footer>
+
+    <script>
+        function toggleFaq(button) {
+            const faqItem = button.parentElement;
+            const isActive = faqItem.classList.contains('active');
+            
+            // Close all FAQ items
+            document.querySelectorAll('.faq-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Open clicked item if it wasn't active
+            if (!isActive) {
+                faqItem.classList.add('active');
+            }
+        }
+    </script>
+</body>
+</html>
